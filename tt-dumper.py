@@ -153,9 +153,9 @@ if FIRST_RESPONSE.status_code == 200:
         exit()
      
     print('________________________________________________________________________\n')
-    print(f"  :: URL : {URL}\n  :: Total Like : {METADATA["metadata"]["totalLike"]}\n  :: Total Comments : {METADATA["metadata"]["totalComment"]}\n  :: Total Share : {METADATA["metadata"]["totalShare"]}\n  :: Duration : {METADATA["metadata"]["duration"]}\n  :: Posted at : {METADATA["metadata"]["createTime"]}")
+    print(f"  :: URL : {URL}\n  :: Total Like : {METADATA['metadata']['totalLike']}\n  :: Total Comments : {METADATA['metadata']['totalComment']}\n  :: Total Share : {METADATA['metadata']['totalShare']}\n  :: Duration : {METADATA['metadata']['duration']}\n  :: Posted at : {METADATA['metadata']['createTime']}")
     print('________________________________________________________________________\n')
-
+    #kemarin error disini, f"metadata"metadata"" / bagian double quote sama single quote nya
 
     try:
         cwd = os.getcwd()  
