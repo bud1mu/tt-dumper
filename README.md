@@ -46,7 +46,7 @@ python main.py -u <tiktok_url> [-o output_file] [-c comment_count] [-f file_type
 ### Example
 
 ```bash
-python main.py -u https://www.tiktok.com/@user/video/1234567890 -o results.csv -c 100 -f csv
+python tt-dumper.py -u https://www.tiktok.com/@user/video/1234567890 -o results.csv -c 100 -f csv
 ```
 
 ## Output Format
