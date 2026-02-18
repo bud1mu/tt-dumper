@@ -7,6 +7,8 @@
 Scraped **~12,000 comments** in just **7.5 seconds**!
 
 ```text
+
+bud1mu@bud1mu:~/cyberspace/tt-dumper$ python tt-dumper.py --url https://www.tiktok.com/@officialinews/video/7606237981698952449 -f json -o hasil.json
   __  __         __                       
  / /_/ /________/ /_ ____ _  ___  ___ ____
 / __/ __/___/ _  / // /  ' \/ _ \/ -_) __/
@@ -16,7 +18,7 @@ Scraped **~12,000 comments** in just **7.5 seconds**!
 
   [*] Fetching metadata...
   ____________________________________________________________
-  :: URL        : [https://tiktok.com/@detikcom/video/7601404250039553301](https://tiktok.com/@detikcom/video/7601404250039553301)
+  :: URL        : https://tiktok.com/@officialinews/video/7606237981698952449
   :: Author     : detik.com (@detikcom)
   :: Likes      : 219600
   :: Comments   : 14100 (Total Available)
