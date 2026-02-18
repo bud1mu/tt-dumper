@@ -1,209 +1,247 @@
-import requests as REQUEST
-import json as JSON
+import requests
+import json
 import argparse
-from time import sleep
-import datetime
 import time
+import datetime
 import csv
 import os
-import re as RE
+import re
+import sys
 import urllib3
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ASCII Art
-print(r'''
+BANNER = r'''
   __  __         __                       
  / /_/ /________/ /_ ____ _  ___  ___ ____
 / __/ __/___/ _  / // /  ' \/ _ \/ -_) __/
-\__/\__/    \_,_/\_,_/_/_/_/ .__/\__/_/   
+\__/\__/    \_,_/\_,_/_/_/_/ .__/\__/_/
                           /_/             
-                        
-                         @bud1mu
-''')
+                         @bud1mu 
+'''
 
-def convert(n):
-    return str(datetime.timedelta(seconds = n))
+class TikTokDumper:
+    def __init__(self, url, output, limit=None, file_type='txt'):
+        self.url = url
+        self.output = output
+        self.limit = limit  
+        self.file_type = file_type
+        self.metadata = {}
+        self.comments = []
+        self.video_id = ""
+        self.session = requests.Session()
+        self.lock = Lock() 
 
-# PARSING ARGUMENT
-parser = argparse.ArgumentParser(description="Extract metadata and comments from a TikTok video.")
-parser.add_argument('-u', '--url', type=str, required=True, help="Specify the TikTok video URL.")
-parser.add_argument('-o', '--output', type=str, default='output.txt', help="Define the name of the output file.")
-parser.add_argument('-c', '--comment', type=int, help="Set the number of comments to retrieve.")
-parser.add_argument('-f', '--file-type', type=str, help="Specify the format of the output file: json, csv, or txt.")
-args = parser.parse_args()
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Referer': 'https://www.tiktok.com/',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
+        self.session.headers.update(self.headers)
 
+    def convert_duration(self, seconds):
+        return str(datetime.timedelta(seconds=seconds))
 
-# LIST ARGUMENT
-URL=args.url
-OUTPUT=args.output
-LEN_COMMENT=args.comment
-FILE_TYPE=args.file_type
+    def extract_video_id(self):
+        """Ekstrak ID Video dari URL dengan Regex yang lebih aman."""
+        match = re.search(r'/video/(\d+)', self.url)
+        if match:
+            self.video_id = match.group(1)
+            return True
+        return False
 
-METADATA={}
-METADATA['metadata']={}
-METADATA["comments"]=[]
-
-HEADERS = {
-    'Host': 'www.tiktok.com',
-    'Cache-Control': 'max-age=0',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Priority': 'u=0, i'
-}
-
-MATCH=RE.search(r"(\d+)$", URL)
-if MATCH:
-    METADATA["metadata"]["idVideo"]=MATCH.group(1)
-else:
-    print('  [!] Video ID Not Found ')
-    exit()
-
-FIRST_URL=f'https://www.tiktok.com/@tiktok/video/{METADATA["metadata"]["idVideo"]}'
-
-FIRST_RESPONSE=REQUEST.get(
-    FIRST_URL,
-    headers=HEADERS,
-    allow_redirects=True,
-    verify=False,
-)
-
-if FIRST_RESPONSE.status_code == 200:
-    HTML_CONTENT=FIRST_RESPONSE.text
-
-    MATCH=RE.search(r'<script\s+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"\s+type="application/json">(.*?)</script>', HTML_CONTENT)
-    if MATCH:
-        JSON_DATA=MATCH.group(1)
-        JSON_DATA= JSON.loads(JSON_DATA)
-    else:
-        print("  [!] 'JSON_DATA' Not Found")
-    
-    # ===================== idVideo =======================
-    VIDEO_ID=JSON_DATA["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]["id"]
-    if VIDEO_ID:
-        METADATA["metadata"]["idVideo"]=VIDEO_ID
-    else:
-        print('  [!] Video ID Not Found ')
-        exit()
-
-    # ==================== uniqueId ==========================
-    GET_UNIQ_ID=JSON_DATA["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]["author"]["uniqueId"]
-    if GET_UNIQ_ID:
-        METADATA["metadata"]["uniqueId"]=GET_UNIQ_ID
-    else:
-        print("  [!] 'uniqueId' Not Found")
-        exit()
-
-    # ==================== nickname ==================  ========
-    GET_NICKNAME=JSON_DATA["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]["author"]["nickname"]
-    if GET_NICKNAME:
-        METADATA["metadata"]["nickname"]=GET_NICKNAME
-    else:
-        print("  [!] 'nickname' Not Found")
-        exit()
-        
-    # ==================== descVideo ==========================
-    GET_DESC=JSON_DATA["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]["desc"]
-    if GET_DESC:
-        METADATA["metadata"]["description"]=GET_DESC
-    else:
-        print("  [!] 'desc' Not Found")
-        exit
-
-    # ==================== diggCount ==========================
-    GET_LIKE=JSON_DATA["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]["stats"]["diggCount"]
-    if GET_LIKE:
-        METADATA["metadata"]["totalLike"]=GET_LIKE
-    else:
-        print("  [!] 'diggCount' Not Found")
-        exit()
-
-    # ==================== commentCount ==========================
-    GET_COMMENT=JSON_DATA["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]["stats"]["commentCount"]
-    if GET_COMMENT:
-        METADATA["metadata"]["totalComment"]=GET_COMMENT
-    else:
-        print("  [!] 'commentCount' Not Found")
-        exit()
-    
-    # ==================== shareCount ==========================
-    GET_SHARE=JSON_DATA["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]["stats"]["shareCount"]
-    if GET_SHARE:
-        METADATA["metadata"]["totalShare"]=GET_SHARE
-    else:
-        print("  [!] 'shareCount' Not Found")
-        exit()
-    
-    # ==================== createTime ==========================
-    GET_TIME=JSON_DATA["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]["createTime"]
-    if GET_TIME:
-        TIME_POST=GET_TIME
-        METADATA["metadata"]["createTime"]=time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(int(TIME_POST)))
-    else:
-        print("  [!] 'createTime' Not Found")
-        exit()
-
-    # ==================== duration ==========================
-    GET_DURATION=JSON_DATA["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]["video"]["duration"]
-    if GET_DURATION:
-        DURATION=GET_DURATION
-        METADATA["metadata"]["duration"]=convert(int(DURATION)) 
-    else:
-        print("  [!] 'duration' Not Found")
-        exit()
-     
-    print('________________________________________________________________________\n')
-    print(f"  :: URL : {URL}\n  :: Total Like : {METADATA['metadata']['totalLike']}\n  :: Total Comments : {METADATA['metadata']['totalComment']}\n  :: Total Share : {METADATA['metadata']['totalShare']}\n  :: Duration : {METADATA['metadata']['duration']}\n  :: Posted at : {METADATA['metadata']['createTime']}")
-    print('________________________________________________________________________\n')
-    #kemarin error disini, f"metadata"metadata"" / bagian double quote sama single quote nya
-
-    try:
-        cwd = os.getcwd()  
-        for CURSOR in range(0, int(METADATA["metadata"]["totalComment"]), 50):
-            API_URL = f'https://www.tiktok.com/api/comment/list/?aid=1988&app_language=en&app_name=tiktok_web&aweme_id={METADATA["metadata"]["idVideo"]}&count=50&cursor={CURSOR}&os=windows&region=ID&screen_height=768&screen_width=1366&user_is_login=false'
+    def fetch_metadata(self):
+        """Mengambil Metadata Video dari HTML."""
+        print("  [*] Fetching metadata...")
+        try:
+            clean_url = f'https://www.tiktok.com/@tiktok/video/{self.video_id}'
+            response = self.session.get(clean_url, verify=False, timeout=10)
             
-            SEC_RESPONSE=REQUEST.get(API_URL, headers=HEADERS, verify=False)
-            DATA=JSON.loads(SEC_RESPONSE.text)
+            if response.status_code != 200:
+                print(f"  [!] Failed to connect. Status: {response.status_code}")
+                return False
 
-            sleep(1)
-            if DATA["has_more"] == 0:
-                break
-            if LEN_COMMENT == len(METADATA["comments"]):
-                break
-            for COUNT in range(0, 55):
-                try:
-                    USERNAME=DATA["comments"][COUNT]["user"]["nickname"]
-                    COMMENT=DATA["comments"][COUNT]["text"]
-                    METADATA["comments"].append({"username":USERNAME, "comment":COMMENT})
-                    print(f"  :: Progress: [{len(METADATA["comments"])}/{METADATA["metadata"]["totalComment"]}]", end='\r') 
-                    if LEN_COMMENT == len(METADATA["comments"]):
-                        break
-                except IndexError:
-                    pass
-      
-        if FILE_TYPE == 'json':
-            with open(OUTPUT, 'w', encoding="utf-8") as file:
-                JSON.dump({"metadata": METADATA['metadata'],"comments": METADATA['comments']}, file, ensure_ascii=False, indent=4)
+            match = re.search(r'<script\s+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"\s+type="application/json">(.*?)</script>', response.text)
+            
+            if not match:
+                 match = re.search(r'<script id="SIGI_STATE" type="application/json">(.*?)</script>', response.text)
 
-        elif FILE_TYPE == 'csv':
-            with open(OUTPUT, 'w', newline='', encoding="utf-8") as file:
-                writer = csv.writer(file)
-                writer.writerow(["username", "comment"])
-                for comment in METADATA['comments']:
-                    writer.writerow([comment["username"], comment["comment"]])
+            if not match:
+                print("  [!] Failed to extract JSON data from HTML.")
+                return False
+
+            data = json.loads(match.group(1))
+            
+            try:
+                default_scope = data.get("__DEFAULT_SCOPE__", {})
+                item_struct = default_scope.get("webapp.video-detail", {}).get("itemInfo", {}).get("itemStruct", {})
+                
+                if not item_struct:
+                     pass
+
+                self.metadata = {
+                    "id": item_struct.get("id"),
+                    "desc": item_struct.get("desc"),
+                    "createTime": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(int(item_struct.get("createTime", 0)))),
+                    "author_id": item_struct.get("author", {}).get("uniqueId"),
+                    "author_name": item_struct.get("author", {}).get("nickname"),
+                    "stats": {
+                        "likes": item_struct.get("stats", {}).get("diggCount"),
+                        "comments": item_struct.get("stats", {}).get("commentCount"),
+                        "shares": item_struct.get("stats", {}).get("shareCount"),
+                        "views": item_struct.get("stats", {}).get("playCount")
+                    },
+                    "duration": self.convert_duration(int(item_struct.get("video", {}).get("duration", 0)))
+                }
+                
+                if not self.metadata["id"]:
+                    raise ValueError("Empty ID parsed")
+                    
+                return True
+
+            except Exception as e:
+                print(f"  [!] Error parsing JSON path: {e}")
+                return False
+
+        except Exception as e:
+            print(f"  [!] Error fetching metadata: {e}")
+            return False
+
+    def fetch_comment_batch(self, cursor, count=50):
+        """Worker function untuk mengambil satu batch komentar."""
+        try:
+            params = {
+                'aid': '1988',
+                'app_language': 'en',
+                'app_name': 'tiktok_web',
+                'aweme_id': self.video_id,
+                'count': count,
+                'cursor': cursor,
+                'os': 'windows',
+                'region': 'ID',
+                'screen_height': '768',
+                'screen_width': '1366'
+            }
+            url = "https://www.tiktok.com/api/comment/list/"
+            
+            response = self.session.get(url, params=params, verify=False, timeout=10)
+            data = response.json()
+            
+            comments_extracted = []
+            if "comments" in data and isinstance(data["comments"], list):
+                for c in data["comments"]:
+                    username = c.get("user", {}).get("nickname", "Unknown")
+                    text = c.get("text", "")
+                    comments_extracted.append({"username": username, "comment": text})
+            
+            return comments_extracted
+
+        except Exception as e:
+            return []
+
+    def run(self):
+        print(BANNER)
         
-        elif FILE_TYPE == 'txt':
-            with open(OUTPUT, 'w', encoding="utf-8") as file:
-                for comment in METADATA['comments']:
-                    file.write(f"{comment['username']}: {comment['comment']}\n")
+        if not self.extract_video_id():
+            print("  [!] Invalid TikTok URL.")
+            return
 
-        print(fr"  [+] Result | Saved in {cwd}\{OUTPUT}                                      ", end="\r")
-        print(f'\n\n     | Total Comments : {METADATA["metadata"]["totalComment"]}\n',
-        f'    | Received Comments : {len(METADATA["comments"])}\n')
-    except KeyboardInterrupt:
-        print(fr"  [+] Result | Saved in {cwd}\{OUTPUT}                                      ", end="\r")
-        print(f'\n\n     | Total Comments : {METADATA["metadata"]["totalComment"]}\n',
-        f'    | Received Comments : {len(METADATA["comments"])}\n')
-        print('  [!] Keyboard Interrupt by User/ Bye')
-else:
-    print(f"Gagal mengambil halaman, Status Code: {FIRST_RESPONSE.status_code}")
+        if not self.fetch_metadata():
+            print("  [!] Cannot proceed without metadata.")
+            return
+
+        print('  ' + '_' * 60)
+        print(f"\n  :: URL        : https://tiktok.com/@{self.metadata['author_id']}/video/{self.metadata['id']}")
+        print(f"  :: Author     : {self.metadata['author_name']} (@{self.metadata['author_id']})")
+        print(f"  :: Likes      : {self.metadata['stats']['likes']}")
+        print(f"  :: Comments   : {self.metadata['stats']['comments']} (Total Available)")
+        print(f"  :: Posted     : {self.metadata['createTime']}")
+        print('  ' + '_' * 60 + '\n')
+
+        total_comments_available = int(self.metadata['stats']['comments'])
+        
+        target_count = total_comments_available
+        if self.limit and self.limit < total_comments_available:
+            target_count = self.limit
+        
+        print(f"  [+] Starting multithreaded dump for approx {target_count} comments...")
+
+        batch_size = 50
+        cursors = range(0, target_count, batch_size)
+        
+        start_time = time.time()
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_cursor = {executor.submit(self.fetch_comment_batch, c, batch_size): c for c in cursors}
+            
+            processed = 0
+            for future in as_completed(future_to_cursor):
+                batch_data = future.result()
+                if batch_data:
+                    self.comments.extend(batch_data)
+                
+                processed += batch_size
+                
+                percent = min(100, (processed / target_count) * 100)
+                sys.stdout.write(f"\r  [+] Progress: {len(self.comments)} comments retrieved... ({percent:.1f}%)")
+                sys.stdout.flush()
+
+                if self.limit and len(self.comments) >= self.limit:
+                    break
+
+        print(f"\n  [+] Done! Extracted {len(self.comments)} comments in {round(time.time() - start_time, 2)} seconds.")
+
+        self.save_data()
+
+    def save_data(self):
+        cwd = os.getcwd()
+        filepath = os.path.join(cwd, self.output)
+        
+        if self.limit:
+            final_data = self.comments[:self.limit]
+        else:
+            final_data = self.comments
+
+        try:
+            if self.file_type == 'json':
+                output_data = {
+                    "metadata": self.metadata,
+                    "comments_count": len(final_data),
+                    "comments": final_data
+                }
+                with open(filepath, 'w', encoding="utf-8") as f:
+                    json.dump(output_data, f, ensure_ascii=False, indent=4)
+
+            elif self.file_type == 'csv':
+                with open(filepath, 'w', newline='', encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["username", "comment"])
+                    for item in final_data:
+                        writer.writerow([item["username"], item["comment"]])
+
+            else: # txt
+                with open(filepath, 'w', encoding="utf-8") as f:
+                    f.write(f"Source: {self.url}\n")
+                    f.write(f"Total Extracted: {len(final_data)}\n")
+                    f.write("-" * 50 + "\n")
+                    for item in final_data:
+                        f.write(f"{item['username']}: {item['comment']}\n")
+
+            print(f"  [+] Saved successfully to: {filepath}")
+
+        except Exception as e:
+            print(f"\n  [!] Error saving file: {e}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="High Performance TikTok Comment Dumper")
+    parser.add_argument('-u', '--url', type=str, required=True, help="TikTok Video URL")
+    parser.add_argument('-o', '--output', type=str, default='output.txt', help="Output filename")
+    parser.add_argument('-c', '--comment', type=int, help="Limit number of comments (optional)")
+    parser.add_argument('-f', '--file-type', type=str, default='txt', choices=['json', 'csv', 'txt'], help="Output format")
+    
+    args = parser.parse_args()
+
+    dumper = TikTokDumper(args.url, args.output, args.comment, args.file_type)
+    dumper.run()
